@@ -1,0 +1,7 @@
+"""
+requirements.txt
+Dependencies for the Student Attendance Management System
+"""
+# Save this and run: pip install -r requirements.txt
+Flask==3.0.3
+Werkzeug==3.0.3

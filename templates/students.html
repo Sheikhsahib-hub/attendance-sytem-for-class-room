@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Students – AttendPro{% endblock %}
+{% block page_title %}Students{% endblock %}
+{% set active = 'students' %}
+
+{% block topbar_actions %}
+  <button class="btn btn-primary" onclick="openModal('addStudentModal')">➕ Add Student</button>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <!-- Filters -->
+  <div class="filters-bar">
+    <div class="form-group">
+      <label class="form-label">Filter by Class</label>
+      <select class="form-control" id="filterClass" onchange="loadStudents()">
+        <option value="">All Classes</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Search</label>
+      <input class="form-control" type="text" id="searchInput" placeholder="Name or roll no…" oninput="filterTable()"/>
+    </div>
+  </div>
+
+  <div class="table-wrapper">
+    <table id="studentsTable">
+      <thead><tr>
+        <th>#</th>
+        <th>Name</th>
+        <th>Roll No</th>
+        <th>Class</th>
+        <th>Email</th>
+        <th>Phone</th>
+        <th>Actions</th>
+      </tr></thead>
+      <tbody id="studentsTbody">
+        <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:24px;">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Add Student Modal -->
+<div class="modal-backdrop" id="addStudentModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">➕ Add Student</span>
+      <button class="modal-close" onclick="closeModal('addStudentModal')">✕</button>
+    </div>
+    <form id="addStudentForm">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div class="form-group">
+          <label class="form-label">Full Name *</label>
+          <input class="form-control" type="text" name="name" required placeholder="e.g. Ali Hassan"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Roll No *</label>
+          <input class="form-control" type="text" name="roll_no" required placeholder="e.g. A001"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Class *</label>
+          <select class="form-control" name="class_id" required id="addClassSelect"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-control" type="email" name="email" placeholder="student@school.com"/>
+        </div>
+        <div class="form-group" style="grid-column:span 2;">
+          <label class="form-label">Phone</label>
+          <input class="form-control" type="text" name="phone" placeholder="03001234567"/>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal('addStudentModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Save Student</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- Edit Student Modal -->
+<div class="modal-backdrop" id="editStudentModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">✏️ Edit Student</span>
+      <button class="modal-close" onclick="closeModal('editStudentModal')">✕</button>
+    </div>
+    <form id="editStudentForm">
+      <input type="hidden" name="id" id="editStudentId"/>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+        <div class="form-group">
+          <label class="form-label">Full Name *</label>
+          <input class="form-control" type="text" name="name" required id="editName"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Roll No *</label>
+          <input class="form-control" type="text" name="roll_no" required id="editRollNo"/>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Class *</label>
+          <select class="form-control" name="class_id" required id="editClassSelect"></select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Email</label>
+          <input class="form-control" type="email" name="email" id="editEmail"/>
+        </div>
+        <div class="form-group" style="grid-column:span 2;">
+          <label class="form-label">Phone</label>
+          <input class="form-control" type="text" name="phone" id="editPhone"/>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-outline" onclick="closeModal('editStudentModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Update Student</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let allStudents = [];
+let classes     = [];
+
+async function loadClasses() {
+  classes = await api('/api/classes');
+  const opts = classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  document.getElementById('filterClass').innerHTML = '<option value="">All Classes</option>' + opts;
+  document.getElementById('addClassSelect').innerHTML  = '<option value="">Select Class</option>' + opts;
+  document.getElementById('editClassSelect').innerHTML = '<option value="">Select Class</option>' + opts;
+}
+
+async function loadStudents() {
+  const cid = document.getElementById('filterClass').value;
+  const url  = cid ? `/api/students?class_id=${cid}` : '/api/students';
+  allStudents = await api(url);
+  renderStudents(allStudents);
+}
+
+function renderStudents(list) {
+  const tb = document.getElementById('studentsTbody');
+  if (!list.length) {
+    tb.innerHTML = `<tr><td colspan="7"><div class="empty-state"><div class="empty-state-icon">👨‍🎓</div><div class="empty-state-text">No students found.</div></div></td></tr>`;
+    return;
+  }
+  tb.innerHTML = list.map((s, i) => `
+    <tr>
+      <td style="color:var(--text-muted);">${i+1}</td>
+      <td>${s.name}</td>
+      <td><code style="background:rgba(108,99,255,0.12);padding:2px 7px;border-radius:5px;font-size:12px;">${s.roll_no}</code></td>
+      <td>${s.class_name}</td>
+      <td style="font-size:13px;">${s.email || '—'}</td>
+      <td style="font-size:13px;">${s.phone || '—'}</td>
+      <td>
+        <button class="btn btn-outline btn-sm" onclick='openEdit(${JSON.stringify(s)})'>✏️ Edit</button>
+        <button class="btn btn-danger btn-sm" onclick="deleteStudent(${s.id}, '${s.name.replace(/'/g,"\\'")}')">🗑️</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+function filterTable() {
+  const q = document.getElementById('searchInput').value.toLowerCase();
+  renderStudents(allStudents.filter(s =>
+    s.name.toLowerCase().includes(q) || s.roll_no.toLowerCase().includes(q)
+  ));
+}
+
+function openEdit(s) {
+  document.getElementById('editStudentId').value  = s.id;
+  document.getElementById('editName').value        = s.name;
+  document.getElementById('editRollNo').value      = s.roll_no;
+  document.getElementById('editClassSelect').value = s.class_id;
+  document.getElementById('editEmail').value       = s.email || '';
+  document.getElementById('editPhone').value       = s.phone || '';
+  openModal('editStudentModal');
+}
+
+document.getElementById('addStudentForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = Object.fromEntries(fd);
+  body.class_id = parseInt(body.class_id);
+  const res = await api('/api/students', 'POST', body);
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast('Student added!', 'success');
+  closeModal('addStudentModal');
+  e.target.reset();
+  loadStudents();
+});
+
+document.getElementById('editStudentForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = Object.fromEntries(fd);
+  const id   = body.id; delete body.id;
+  body.class_id = parseInt(body.class_id);
+  const res = await api(`/api/students/${id}`, 'PUT', body);
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast('Student updated!', 'success');
+  closeModal('editStudentModal');
+  loadStudents();
+});
+
+async function deleteStudent(id, name) {
+  if (!confirm(`Delete student "${name}"? Their attendance records will also be removed.`)) return;
+  await api(`/api/students/${id}`, 'DELETE');
+  showToast('Student deleted.', 'info');
+  loadStudents();
+}
+
+// Init
+loadClasses().then(loadStudents);
+</script>
+{% endblock %}

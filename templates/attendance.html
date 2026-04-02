@@ -1,0 +1,173 @@
+{% extends "base.html" %}
+{% block title %}Mark Attendance – AttendPro{% endblock %}
+{% block page_title %}Mark Attendance{% endblock %}
+{% set active = 'attendance' %}
+
+{% block content %}
+<div class="card" style="margin-bottom:20px;">
+  <div class="section-header">
+    <div>
+      <div class="section-title">📅 Select Class & Date</div>
+      <div class="section-subtitle">Choose a class and date to mark attendance</div>
+    </div>
+  </div>
+  <div class="filters-bar">
+    <div class="form-group">
+      <label class="form-label">Class *</label>
+      <select class="form-control" id="attClass" style="min-width:200px;">
+        <option value="">— Select Class —</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Date *</label>
+      <input class="form-control" type="date" id="attDate" style="min-width:160px;"/>
+    </div>
+    <div class="form-group" style="display:flex;align-items:flex-end;">
+      <button class="btn btn-primary" onclick="loadStudentsForAtt()">Load Students</button>
+    </div>
+  </div>
+</div>
+
+<div id="attCard" style="display:none;">
+  <div class="card">
+    <div class="section-header">
+      <div>
+        <div class="section-title" id="attCardTitle">—</div>
+        <div class="section-subtitle">Click a status for each student, then save.</div>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button class="btn btn-outline btn-sm" onclick="markAll('Present')">✅ All Present</button>
+        <button class="btn btn-outline btn-sm" onclick="markAll('Absent')">❌ All Absent</button>
+      </div>
+    </div>
+
+    <div class="table-wrapper">
+      <table class="att-table">
+        <thead><tr>
+          <th style="width:40px;">#</th>
+          <th>Student Name</th>
+          <th>Roll No</th>
+          <th style="width:130px;">Present</th>
+          <th style="width:130px;">Absent</th>
+          <th style="width:130px;">Leave</th>
+          <th>Notes</th>
+        </tr></thead>
+        <tbody id="attTbody"></tbody>
+      </table>
+    </div>
+
+    <div style="margin-top:20px;display:flex;justify-content:flex-end;gap:12px;">
+      <button class="btn btn-outline" onclick="document.getElementById('attCard').style.display='none'">Cancel</button>
+      <button class="btn btn-primary" id="saveAttBtn" onclick="saveAttendance()">💾 Save Attendance</button>
+    </div>
+  </div>
+</div>
+
+<div id="emptyAttState" style="display:none;">
+  <div class="card">
+    <div class="empty-state">
+      <div class="empty-state-icon">👨‍🎓</div>
+      <div class="empty-state-text">No students in this class.<br/>
+        <a href="/students" style="color:var(--primary);">Add students first →</a>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let currentStudents = [];
+
+// Set default date to today
+document.getElementById('attDate').value = new Date().toISOString().split('T')[0];
+
+async function loadClassesForAtt() {
+  const classes = await api('/api/classes');
+  const sel     = document.getElementById('attClass');
+  sel.innerHTML = '<option value="">— Select Class —</option>' +
+    classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+
+  // Support ?class_id= URL param pre-select
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('class_id')) sel.value = params.get('class_id');
+}
+
+async function loadStudentsForAtt() {
+  const cid  = document.getElementById('attClass').value;
+  const date = document.getElementById('attDate').value;
+  if (!cid)  { showToast('Please select a class.', 'error'); return; }
+  if (!date) { showToast('Please select a date.', 'error');  return; }
+
+  const students = await api(`/api/attendance/students-for-class?class_id=${cid}&date=${date}`);
+  currentStudents = students;
+
+  const attCard     = document.getElementById('attCard');
+  const emptyState  = document.getElementById('emptyAttState');
+
+  if (!students.length) {
+    attCard.style.display    = 'none';
+    emptyState.style.display = 'block';
+    return;
+  }
+  emptyState.style.display = 'none';
+  attCard.style.display    = 'block';
+
+  const className = document.getElementById('attClass').options[document.getElementById('attClass').selectedIndex].text;
+  document.getElementById('attCardTitle').textContent = `${className} – ${date}`;
+
+  document.getElementById('attTbody').innerHTML = students.map((s, i) => {
+    const st = s.status || 'Present';
+    return `<tr>
+      <td style="color:var(--text-muted);">${i+1}</td>
+      <td style="font-weight:600;">${s.name}</td>
+      <td><code style="background:rgba(108,99,255,0.12);padding:2px 7px;border-radius:5px;font-size:12px;">${s.roll_no}</code></td>
+      <td>
+        <input type="radio" class="att-radio present" name="att_${s.id}" id="p_${s.id}" value="Present" ${st==='Present'?'checked':''}/>
+        <label class="att-label" for="p_${s.id}">✅ Present</label>
+      </td>
+      <td>
+        <input type="radio" class="att-radio absent" name="att_${s.id}" id="a_${s.id}" value="Absent" ${st==='Absent'?'checked':''}/>
+        <label class="att-label" for="a_${s.id}">❌ Absent</label>
+      </td>
+      <td>
+        <input type="radio" class="att-radio leave" name="att_${s.id}" id="l_${s.id}" value="Leave" ${st==='Leave'?'checked':''}/>
+        <label class="att-label" for="l_${s.id}">🏖️ Leave</label>
+      </td>
+      <td><input class="form-control" type="text" id="notes_${s.id}" placeholder="Optional note…" style="font-size:12px;padding:6px 10px;" value="${s.notes||''}"/></td>
+    </tr>`;
+  }).join('');
+}
+
+function markAll(status) {
+  currentStudents.forEach(s => {
+    const radio = document.getElementById(`${status[0].toLowerCase()}_${s.id}`);
+    if (radio) radio.checked = true;
+  });
+}
+
+async function saveAttendance() {
+  const cid  = document.getElementById('attClass').value;
+  const date = document.getElementById('attDate').value;
+  const btn  = document.getElementById('saveAttBtn');
+
+  const records = currentStudents.map(s => {
+    const chosen = document.querySelector(`input[name="att_${s.id}"]:checked`);
+    return {
+      student_id: s.id,
+      status:     chosen ? chosen.value : 'Present',
+      notes:      document.getElementById(`notes_${s.id}`)?.value || ''
+    };
+  });
+
+  btn.disabled = true; btn.textContent = 'Saving…';
+  const res = await api('/api/attendance/bulk', 'POST', {class_id: parseInt(cid), date, records});
+  btn.disabled = false; btn.textContent = '💾 Save Attendance';
+
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast(`Saved! ${res.saved} new, ${res.updated} updated.`, 'success');
+}
+
+loadClassesForAtt();
+</script>
+{% endblock %}

@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Dashboard – AttendPro{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% set active = 'dashboard' %}
+
+{% block content %}
+<!-- Stats Grid -->
+<div class="stats-grid" id="statsGrid">
+  <div class="stat-card">
+    <div class="stat-icon purple">👨‍🎓</div>
+    <div><div class="stat-value" id="statStudents">—</div><div class="stat-label">Total Students</div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon blue">🏫</div>
+    <div><div class="stat-value" id="statClasses">—</div><div class="stat-label">Total Classes</div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon green">✅</div>
+    <div><div class="stat-value" id="statPresent">—</div><div class="stat-label">Present Today</div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon red">❌</div>
+    <div><div class="stat-value" id="statAbsent">—</div><div class="stat-label">Absent Today</div></div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-icon amber">🏖️</div>
+    <div><div class="stat-value" id="statLeave">—</div><div class="stat-label">On Leave Today</div></div>
+  </div>
+</div>
+
+<!-- Two Columns -->
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-bottom:24px;" class="dashboard-cols">
+
+  <!-- Today per Class -->
+  <div class="card">
+    <div class="section-header" style="margin-bottom:18px;">
+      <div>
+        <div class="section-title">📅 Today's Summary</div>
+        <div class="section-subtitle" id="todayDate">—</div>
+      </div>
+    </div>
+    <div id="classToday">
+      <div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-text">No data yet</div></div>
+    </div>
+  </div>
+
+  <!-- Overall Breakdown -->
+  <div class="card">
+    <div class="section-header" style="margin-bottom:18px;">
+      <div>
+        <div class="section-title">📈 All-Time Summary</div>
+        <div class="section-subtitle">Total attendance records</div>
+      </div>
+    </div>
+    <div id="overallChart" style="margin-top:8px;"></div>
+  </div>
+
+</div>
+
+<!-- Recent Trend -->
+<div class="card">
+  <div class="section-header" style="margin-bottom:18px;">
+    <div>
+      <div class="section-title">📆 Last 7 Days Trend</div>
+      <div class="section-subtitle">Daily attendance overview</div>
+    </div>
+    <a href="/attendance" class="btn btn-primary btn-sm">+ Mark Today</a>
+  </div>
+  <div class="table-wrapper">
+    <table>
+      <thead><tr>
+        <th>Date</th>
+        <th>Present</th>
+        <th>Absent</th>
+        <th>Leave</th>
+        <th>Total</th>
+      </tr></thead>
+      <tbody id="trendTable">
+        <tr><td colspan="5" class="empty-state" style="text-align:center;color:var(--text-muted);">Loading…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function loadDashboard() {
+  const data = await api('/api/dashboard');
+
+  document.getElementById('statStudents').textContent = data.total_students;
+  document.getElementById('statClasses').textContent  = data.total_classes;
+  document.getElementById('statPresent').textContent  = data.today.present;
+  document.getElementById('statAbsent').textContent   = data.today.absent;
+  document.getElementById('statLeave').textContent    = data.today.leave;
+  document.getElementById('todayDate').textContent    = new Date(data.today.date + 'T00:00').toLocaleDateString('en-PK', {weekday:'long',year:'numeric',month:'long',day:'numeric'});
+
+  // Per-class today table
+  const classEl = document.getElementById('classToday');
+  if (data.class_today.length === 0) {
+    classEl.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-text">No classes found</div></div>`;
+  } else {
+    classEl.innerHTML = data.class_today.map(c => {
+      const pct = c.total ? Math.round((c.present / c.total) * 100) : 0;
+      return `<div style="margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;margin-bottom:5px;">
+          <span style="font-size:13px;font-weight:600;">${c.class_name}</span>
+          <span style="font-size:12px;color:var(--text-muted);">${c.present}/${c.total} present</span>
+        </div>
+        <div class="chart-bar-track"><div class="chart-bar-fill" style="width:${pct}%;background:linear-gradient(90deg,var(--primary),var(--accent));"></div></div>
+        <div style="font-size:11px;color:var(--text-muted);margin-top:3px;">
+          <span style="color:var(--success);">✅ ${c.present}</span>
+          &nbsp;<span style="color:var(--danger);">❌ ${c.absent}</span>
+          &nbsp;<span style="color:var(--warning);">🏖 ${c.leave}</span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // Overall chart
+  const o = data.overall;
+  const total = o.present + o.absent + o.leave || 1;
+  document.getElementById('overallChart').innerHTML = [
+    {label:'Present', val:o.present, color:'var(--success)'},
+    {label:'Absent',  val:o.absent,  color:'var(--danger)'},
+    {label:'Leave',   val:o.leave,   color:'var(--warning)'},
+  ].map(r => `
+    <div class="chart-bar-row">
+      <span class="chart-bar-label">${r.label}</span>
+      <div class="chart-bar-track">
+        <div class="chart-bar-fill" style="width:${Math.round(r.val/total*100)}%;background:${r.color};"></div>
+      </div>
+      <span class="chart-bar-val">${r.val}</span>
+    </div>
+  `).join('');
+
+  // Trend table
+  const tbody = document.getElementById('trendTable');
+  if (!data.trend.length) {
+    tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:24px;">No records yet. <a href="/attendance" style="color:var(--primary);">Mark attendance →</a></td></tr>`;
+  } else {
+    tbody.innerHTML = data.trend.map(r => {
+      const tot = r.present + r.absent + r.leave;
+      return `<tr>
+        <td>${r.date}</td>
+        <td><span class="badge badge-present">✅ ${r.present}</span></td>
+        <td><span class="badge badge-absent">❌ ${r.absent}</span></td>
+        <td><span class="badge badge-leave">🏖️ ${r.leave}</span></td>
+        <td style="color:var(--text-muted);">${tot}</td>
+      </tr>`;
+    }).join('');
+  }
+}
+loadDashboard();
+</script>
+<style>
+@media(max-width:768px){.dashboard-cols{grid-template-columns:1fr!important;}}
+</style>
+{% endblock %}

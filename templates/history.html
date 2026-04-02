@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}Attendance History – AttendPro{% endblock %}
+{% block page_title %}Attendance History{% endblock %}
+{% set active = 'history' %}
+
+{% block topbar_actions %}
+  <button class="btn btn-success" id="exportBtn" onclick="exportCSV()">📥 Export CSV</button>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+  <!-- Filters -->
+  <div class="filters-bar" style="margin-bottom:18px;">
+    <div class="form-group">
+      <label class="form-label">Class</label>
+      <select class="form-control" id="filterClass">
+        <option value="">All Classes</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Student</label>
+      <select class="form-control" id="filterStudent">
+        <option value="">All Students</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Date</label>
+      <input class="form-control" type="date" id="filterDate"/>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Status</label>
+      <select class="form-control" id="filterStatus">
+        <option value="">All Statuses</option>
+        <option>Present</option>
+        <option>Absent</option>
+        <option>Leave</option>
+      </select>
+    </div>
+    <div class="form-group" style="display:flex;align-items:flex-end;gap:8px;">
+      <button class="btn btn-primary" onclick="loadHistory()">🔍 Filter</button>
+      <button class="btn btn-outline" onclick="resetFilters()">↩️ Reset</button>
+    </div>
+  </div>
+
+  <!-- Summary row -->
+  <div id="historySummary" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;"></div>
+
+  <!-- Table -->
+  <div class="table-wrapper">
+    <table>
+      <thead><tr>
+        <th>#</th>
+        <th>Date</th>
+        <th>Time</th>
+        <th>Student</th>
+        <th>Roll No</th>
+        <th>Class</th>
+        <th>Status</th>
+        <th>Notes</th>
+        <th>Actions</th>
+      </tr></thead>
+      <tbody id="historyTbody">
+        <tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:24px;">Apply filters and click Filter to load records.</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Edit Attendance Modal -->
+<div class="modal-backdrop" id="editAttModal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title">✏️ Edit Attendance Record</span>
+      <button class="modal-close" onclick="closeModal('editAttModal')">✕</button>
+    </div>
+    <form id="editAttForm">
+      <input type="hidden" id="editAttId"/>
+      <div class="form-group">
+        <label class="form-label">Student</label>
+        <input class="form-control" type="text" id="editAttStudent" disabled/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Date</label>
+        <input class="form-control" type="text" id="editAttDate" disabled/>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Status *</label>
+        <select class="form-control" id="editAttStatus">
+          <option>Present</option>
+          <option>Absent</option>
+          <option>Leave</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <textarea class="form-control" id="editAttNotes" rows="2" placeholder="Optional notes…" style="resize:vertical;"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-danger btn-sm" onclick="deleteCurrentAtt()">🗑️ Delete</button>
+        <button type="button" class="btn btn-outline" onclick="closeModal('editAttModal')">Cancel</button>
+        <button type="submit" class="btn btn-primary">Update</button>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let historyData = [];
+
+async function loadDropdowns() {
+  const [classes, students] = await Promise.all([api('/api/classes'), api('/api/students')]);
+
+  const clOpts = classes.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  document.getElementById('filterClass').innerHTML = '<option value="">All Classes</option>' + clOpts;
+
+  const stOpts = students.map(s => `<option value="${s.id}">${s.name} (${s.class_name})</option>`).join('');
+  document.getElementById('filterStudent').innerHTML = '<option value="">All Students</option>' + stOpts;
+}
+
+async function loadHistory() {
+  const cid  = document.getElementById('filterClass').value;
+  const sid  = document.getElementById('filterStudent').value;
+  const date = document.getElementById('filterDate').value;
+  const stat = document.getElementById('filterStatus').value;
+
+  let url = '/api/attendance?';
+  if (cid)  url += `class_id=${cid}&`;
+  if (sid)  url += `student_id=${sid}&`;
+  if (date) url += `date=${date}&`;
+
+  let data = await api(url);
+  if (stat) data = data.filter(r => r.status === stat);
+  historyData = data;
+  renderHistory(data);
+}
+
+function renderHistory(data) {
+  const tbody = document.getElementById('historyTbody');
+  const summEl = document.getElementById('historySummary');
+
+  if (!data.length) {
+    tbody.innerHTML = `<tr><td colspan="9"><div class="empty-state"><div class="empty-state-icon">📋</div><div class="empty-state-text">No records found for the selected filters.</div></div></td></tr>`;
+    summEl.innerHTML = '';
+    return;
+  }
+
+  // Summary badges
+  const present = data.filter(r => r.status==='Present').length;
+  const absent  = data.filter(r => r.status==='Absent').length;
+  const leave   = data.filter(r => r.status==='Leave').length;
+  summEl.innerHTML = `
+    <span class="badge badge-present">✅ Present: ${present}</span>
+    <span class="badge badge-absent">❌ Absent: ${absent}</span>
+    <span class="badge badge-leave">🏖️ Leave: ${leave}</span>
+    <span style="font-size:12px;color:var(--text-muted);align-self:center;">Total: ${data.length} records</span>
+  `;
+
+  tbody.innerHTML = data.map((r, i) => {
+    const badge = {
+      Present: '<span class="badge badge-present"><span class="badge-dot"></span>Present</span>',
+      Absent:  '<span class="badge badge-absent"><span class="badge-dot"></span>Absent</span>',
+      Leave:   '<span class="badge badge-leave"><span class="badge-dot"></span>Leave</span>',
+    }[r.status] || r.status;
+    return `<tr>
+      <td style="color:var(--text-muted);">${i+1}</td>
+      <td>${r.date}</td>
+      <td style="font-size:12px;color:var(--text-muted);">${r.time}</td>
+      <td>${r.student_name}</td>
+      <td><code style="background:rgba(108,99,255,0.12);padding:2px 7px;border-radius:5px;font-size:11px;">${r.roll_no}</code></td>
+      <td>${r.class_name}</td>
+      <td>${badge}</td>
+      <td style="font-size:12px;color:var(--text-muted);">${r.notes||'—'}</td>
+      <td><button class="btn btn-outline btn-sm" onclick='openEditAtt(${JSON.stringify(r)})'>✏️</button></td>
+    </tr>`;
+  }).join('');
+}
+
+function resetFilters() {
+  ['filterClass','filterStudent','filterDate','filterStatus'].forEach(id => {
+    const el = document.getElementById(id);
+    el.value = '';
+  });
+  historyData = [];
+  document.getElementById('historyTbody').innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:24px;">Apply filters and click Filter to load records.</td></tr>`;
+  document.getElementById('historySummary').innerHTML = '';
+}
+
+function openEditAtt(r) {
+  document.getElementById('editAttId').value      = r.id;
+  document.getElementById('editAttStudent').value = `${r.student_name} (${r.roll_no})`;
+  document.getElementById('editAttDate').value    = r.date;
+  document.getElementById('editAttStatus').value  = r.status;
+  document.getElementById('editAttNotes').value   = r.notes || '';
+  openModal('editAttModal');
+}
+
+document.getElementById('editAttForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  const id     = document.getElementById('editAttId').value;
+  const status = document.getElementById('editAttStatus').value;
+  const notes  = document.getElementById('editAttNotes').value;
+  const res    = await api(`/api/attendance/${id}`, 'PUT', {status, notes});
+  if (res.error) { showToast(res.error, 'error'); return; }
+  showToast('Record updated!', 'success');
+  closeModal('editAttModal');
+  loadHistory();
+});
+
+async function deleteCurrentAtt() {
+  if (!confirm('Delete this attendance record?')) return;
+  const id = document.getElementById('editAttId').value;
+  await api(`/api/attendance/${id}`, 'DELETE');
+  showToast('Record deleted.', 'info');
+  closeModal('editAttModal');
+  loadHistory();
+}
+
+function exportCSV() {
+  const cid  = document.getElementById('filterClass').value;
+  const sid  = document.getElementById('filterStudent').value;
+  const date = document.getElementById('filterDate').value;
+  let url = '/api/export/csv?';
+  if (cid)  url += `class_id=${cid}&`;
+  if (sid)  url += `student_id=${sid}&`;
+  if (date) url += `date=${date}&`;
+  window.location.href = url;
+  showToast('Downloading CSV…', 'info');
+}
+
+loadDropdowns().then(() => loadHistory());
+</script>
+{% endblock %}
